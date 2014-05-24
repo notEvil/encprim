@@ -471,9 +471,15 @@ genFloat = lambda random: random.random() * 10 ** random.randint(0, 17)
 randGens = {
     None: lambda random: None,
     bool: lambda random: random.random() < 0.5,
-    'i': lambda random: random.randint(-0x80000000, 0x7fffffff),
-    'I': lambda random: random.randint(-0x8000000000000000, 0x7fffffffffffffff),
-    'Q': lambda random: random.getrandbits(random.randint(64, 128)),
+    1: lambda random: random.randint(-0x7f, 0x7f),
+    2: lambda random: random.randint(-0x7fff, 0x7fff),
+    3: lambda random: random.randint(-0x7fffff, 0x7fffff),
+    4: lambda random: random.randint(-0x7fffffff, 0x7fffffff),
+    5: lambda random: random.randint(-0x7fffffffff, 0x7fffffffff),
+    6: lambda random: random.randint(-0x7fffffffffff, 0x7fffffffffff),
+    7: lambda random: random.randint(-0x7fffffffffffff, 0x7fffffffffffff),
+    8: lambda random: random.randint(-0x7fffffffffffffff, 0x7fffffffffffffff),
+    16: lambda random: random.randint(-0x7fffffffffffffffffffffffffffffff, 0x7fffffffffffffffffffffffffffffff),
     float: genFloat,
     complex: lambda random: complex(genFloat(random), genFloat(random)),
 }
@@ -483,7 +489,7 @@ def randPrim(minLen=0, maxLen=6, readable=True):
 
     n = random.randint(minLen, maxLen)
     choice = random.choice
-    typs = (choice([None, bool, 'i', 'I', 'Q', float, complex, str, tuple, list, dict]) for i in xrange(n))
+    typs = (choice([None, bool, 1, 2, 3, 4, 5, 6, 7, 8, 16, float, complex, str, tuple, list, dict]) for i in xrange(n))
 
     randPrim = _randPrim
     nMaxLen = max(minLen, maxLen - 1)
@@ -746,9 +752,15 @@ if __name__ == '__main__':
     print 'random very prims'
     print 'None:', compare2(None, 1000)
     print 'bool:', compare2(bool, 1000)
-    print 'i:', compare2('i', 1000)
-    print 'I:', compare2('I', 1000)
-    print 'Q:', compare2('Q', 1000)
+    print 1, ':', compare2(1, 1000)
+    print 2, ':', compare2(2, 1000)
+    print 3, ':', compare2(3, 1000)
+    print 4, ':', compare2(4, 1000)
+    print 5, ':', compare2(5, 1000)
+    print 6, ':', compare2(6, 1000)
+    print 7, ':', compare2(7, 1000)
+    print 8, ':', compare2(8, 1000)
+    print 16, ':', compare2(16, 1000)
     print 'float:', compare2(float, 1000)
     print 'complex:', compare2(complex, 1000)
 
@@ -773,9 +785,26 @@ if __name__ == '__main__':
     print 'random flat, typed prims'
     print 'None:', compare3(None, l, n)
     print 'bool:', compare3(bool, l, n)
-    print 'i:', compare3('i', l, n)
-    print 'I:', compare3('I', l, n)
-    print 'Q:', compare3('Q', l, n)
+    print 1, ':', compare3(1, l, n)
+    print 2, ':', compare3(2, l, n)
+    print 3, ':', compare3(3, l, n)
+    print 4, ':', compare3(4, l, n)
+    print 5, ':', compare3(5, l, n)
+    print 6, ':', compare3(6, l, n)
+    print 7, ':', compare3(7, l, n)
+    print 8, ':', compare3(8, l, n)
+    print 16, ':', compare3(16, l, n)
     print 'float:', compare3(float, l, n)
     print 'complex:', compare3(complex, l, n)
+
+    if bitarray != None:
+        print
+        print 'bitarrays'
+        for i in xrange(11):
+            n = 2 ** i
+            print 'n =', n, ':',
+
+            a = bitarray.bitarray(n)
+            print float(len(encode(a, bitarrays=True))) / len(pickle.dumps(a, 2)) # 0.95 @ n = 8000
+
 
