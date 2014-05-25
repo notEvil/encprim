@@ -656,6 +656,7 @@ if __name__ == '__main__':
     except:
         pass
 
+    import pickle as pickle
 
     import sys
     if '-i' in sys.argv:
@@ -692,7 +693,6 @@ if __name__ == '__main__':
             print float(len(a)) / len(b)
 
 
-    import pickle as pickle
     import time
 
 
