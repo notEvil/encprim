@@ -235,6 +235,9 @@ def _encodeContainer(x, visited, starts={tuple: '(', list: '[', set: '<'}, ends=
     typ = type(x)
     r = [starts[typ]]
 
+    if typ == set:
+        x = sorted(x, key=type)
+
     iX = iter(x)
 
     encode = _encode
