@@ -1,6 +1,7 @@
 import struct
-import re
+import cStringIO as StringIO
 
+from pickle import encode_long, decode_long
 
 
 
@@ -9,23 +10,33 @@ bitarray = None
 
 '''
 syntax:
-[n] = repitition (int)
-[l] = len (in bytes if not specified otherwise)
-[d] = data
-- [n]N = None
-- [n]T, [n]F = bool
-- [n]b[d], [n]h[d], [n]i[d], [n]q[d] = integer (var size)
-- [l]Q[d] = large integer (var size)
-- [n]d[d] = float
-- [n]C[d] = complex
-- [l]s[d] = str
-- [n]:[d] = slice
-- () = tuple
-- [] = list
-- <> = set
-- {} = dict
-- [l]B[d] = bitarray
-  l in bits
+value = [count]type[data]
+
+count (number of repetitions if not specified otherwise) is either
+- 0 .. 9
+- x[1 byte]
+- X[4 byte]
+
+type is one of
+- N = None
+-- no data
+- T or F = bool
+-- no data
+- b, h, i or q = integer (<=8 byte)
+-- 1, 2, 4 or 8 bytes
+- I = big integer (<256 byte)
+-- first byte in data specifies size in bytes
+- J = very big integer (>=256 byte)
+-- first 4 bytes in data specifies size in bytes
+- d = float
+- C = complex
+- S = str
+-- count specifies length in bytes
+- : = slice
+- B = bitarray
+-- count specifies length in bits
+
+tuple/list/set = sequence of values inside () / [] / {}
 '''
 
 
@@ -33,141 +44,137 @@ syntax:
 def _encodeNone(x, visited):
     return 'N'
 
-def _decodeNone(x, n, target):
+def _decodeNone(read, typ, n, target):
+    if n == 1:
+        target.append(None)
+        return
+
     target.extend([None] * n)
-    return x
 
 def _encodeBool(x, visited):
     return 'T' if x else 'F'
 
-def _decodeBool(x, n, target, value):
-    target.extend([value] * n)
-    return x
+def _decodeBool(read, typ, n, target):
+    if n == 1:
+        target.append(typ == 'T')
+        return
+
+    target.extend([typ == 'T'] * n)
 
 
-def _encodeNum(x, visited):
-    encodeAs = _encodeNumAs
+def _encodeInt(x, visited, pack=struct.pack):
+    pad = -1 if x < 0 else 0
 
-    r = encodeAs(x, 'b')
-    if r != None:
-        return r
+    if (x >> 7) == pad:
+        return 'b' + pack('b', x)
 
-    r = encodeAs(x, 'h')
-    if r != None:
-        return r
+    if (x >> 15) == pad:
+        return 'h' + pack('h', x)
 
-    r = encodeAs(x, 'i')
-    if r != None:
-        return r
+    if (x >> 31) == pad:
+        return 'i' + pack('i', x)
 
-    r = encodeAs(x, 'q')
-    if r != None:
-        return r
+    if (x >> 63) == pad:
+        return 'q' + pack('q', x)
 
-    r = _toBytes(x)
-    return str(len(r)) + 'Q' + r
+    bytes = encode_long(x)
+    n = len(bytes)
+    if n < 256:
+        return 'I' + chr(n) + bytes
 
-def _encodeNumAs(x, format):
-    try:
-        return format + struct.pack(format, x)
-    except struct.error:
-        return None
+    return 'J' + pack('I', n) + bytes
 
+def _decodeInt(read, typ, n, target, size={'b': 1, 'h': 2, 'i': 4, 'q': 8}, unpack=struct.unpack):
+    if n == 1:
+        target.extend( unpack(typ, read(size[typ])) )
+        return
 
-def _decodeNum(x, n, target, typ, size={'b': 1, 'h': 2, 'i': 4, 'q': 8}):
-    if typ == 'Q':
+    target.extend(
+        unpack(str(n) + typ, read(n * size[typ]))
+    )
+
+def _decodeBigInt(read, typ, n, target):
+    if n == 1:
         target.append(
-            _fromBytes(buffer(x, 0, n))
+            decode_long(read( ord(read(1)) ))
         )
-        return buffer(x, n)
+        return
 
-    l = n * size[typ]
+    target.extend([ decode_long(read( ord(read(1)) )) for i in xrange(n) ])
+
+def _decodeVeryBigInt(read, typ, n, target, unpack=struct.unpack):
+    if n == 1:
+        target.append(
+            decode_long(read( unpack('I', read(4)) ))
+        )
+        return
+
+    target.extend([ decode_long(read( unpack('I', read(4))[0] )) for i in xrange(n) ])
+
+
+#def _toBytes(x):
+    #pad = -1 if x < 0 else 0
+
+    #if x == pad:
+        #return pad and '\xff' or '\x00'
+
+    #r = []
+    #while x != pad:
+        #r.append(x & 0xff)
+        #x >>= 8
+
+    #if pad: # use last bit as sign
+        #if not (r[-1] & 0x80):
+            #r.append(0xff)
+    #else:
+        #if r[-1] & 0x80:
+            #r.append(0)
+
+    #return ''.join(map(chr, r))
+
+#def _fromBytes(x):
+    #r = -1 if ord(x[-1]) & 0x80 else 0
+    #r <<= 8 * len(x)
+
+    #i = 0
+    #for c in x:
+        #r |= ord(c) << i
+        #i += 8
+
+    #return r
+
+
+def _encodeFloat(x, visited, pack=struct.pack):
+    return 'd' + pack('d', x)
+
+def _decodeFloat(read, typ, n, target, unpack=struct.unpack):
+    if n == 1:
+        target.extend( unpack('d', read(8)) )
+        return
+
     target.extend(
-        struct.unpack(str(n) + typ, buffer(x, 0, l))
+        unpack(str(n) + 'd', read(n * 8))
     )
-    return buffer(x, l)
 
+def _encodeComplex(x, visited, pack=struct.pack):
+    return 'C' + pack('2d', x.real, x.imag)
 
-def _toBytes(x, lastBit=0x80):
-    if x == 0:
-        return ''
+def _decodeComplex(read, typ, n, target, unpack=struct.unpack):
+    if n == 1:
+        values = unpack('2d', read(16))
+        target.append( complex(*values) )
+        return
 
-    if x < 0:
-        neg = True
-        x = abs(x)
-    else:
-        neg = False
-
-    r = []
-
-    while x:
-        r.append(x & 0xff)
-        x >>= 8
-
-    if neg:
-        last = r[-1]
-        if last & lastBit:
-            r.append(lastBit)
-        else:
-            r[-1] = last | lastBit
-
-    else:
-        if r[-1] & lastBit:
-            r.append(0)
-
-    return ''.join(chr(x) for x in r)
-
-def _fromBytes(x, lastBit=0x80):
-    if len(x) == 0:
-        return 0
-
-    x = map(ord, x)
-
-    last = x[-1]
-    if last & lastBit:
-        neg = True
-
-        x[-1] = last ^ lastBit
-    else:
-        neg = False
-
-    r = 0
-    i = 0
-    for item in x:
-        r |= (item << i)
-        i += 8
-
-    return -r if neg else r
-
-
-def _encodeFloat(x, visited):
-    return 'd' + struct.pack('d', x)
-
-def _decodeFloat(x, n, target):
-    l = n * 8
-    target.extend(
-        struct.unpack(str(n) + 'd', buffer(x, 0, l))
-    )
-    return buffer(x, l)
-
-def _encodeComplex(x, visited):
-    return 'C' + struct.pack('2d', x.real, x.imag)
-
-def _decodeComplex(x, n, target):
     count = 2 * n # real, imag
-    l = 8 * count # 8 byte per float
-    values = struct.unpack(str(count) + 'd', buffer(x, 0, l))
+    values = unpack(str(count) + 'd', read(8 * count))
     target.extend( complex(real, imag) for real, imag in zip(values[::2], values[1::2]) )
-    return buffer(x, l)
 
 
 def _encodeStr(x, visited):
-    l = len(x)
-    return ('' if l == 1 else str(l)) + 'S' + x
+    return _encodeCount(len(x)) + 'S' + x
 
-def _decodeStr(x, l, target):
-    target.append(x[:l])
-    return buffer(x, l)
+def _decodeStr(read, typ, n, target):
+    target.append(read(n))
 
 def _encodeSlice(x, visited):
     encode = _encode
@@ -186,21 +193,40 @@ def _encodeSlice(x, visited):
 
     return ':' + start + stop + step
 
-def _decodeSlice(x, n, target):
+def _decodeSlice(read, typ, n, target):
     decode = _decode
+    if n == 1:
+        r = []
+        decode(read, r) # start
+        decode(read, r) # stop
+        decode(read, r) # step
+        target.append(slice(*r))
+        return
+
     for i in xrange(n):
         r = []
-        x = decode(x, r) # start
-        x = decode(x, r) # stop
-        x = decode(x, r) # step
+        decode(read, r) # start
+        decode(read, r) # stop
+        decode(read, r) # step
         target.append(slice(*r))
 
-    return x
+
+def _encodeCount(n, pack=struct.pack):
+    if n == 1:
+        return ''
+
+    if n < 10:
+        return str(n)
+
+    if n >> 8: # doesn't fit into 1 byte
+        return 'X' + pack('I', n)
+
+    return 'x' + chr(n)
 
 
-
-def _encodeContainer(x, visited, start, end, reducable=set(['N', 'T', 'F', 'b', 'h', 'i', 'q', 'd', 'C', ':'])):
-    r = [start]
+def _encodeContainer(x, visited, starts={tuple: '(', list: '[', set: '<'}, ends={tuple: ')', list: ']', set: '>'}, reducable=set(['N', 'T', 'F', 'b', 'h', 'i', 'q', 'I', 'J', 'd', 'C', ':'])):
+    typ = type(x)
+    r = [starts[typ]]
 
     iX = iter(x)
 
@@ -247,7 +273,7 @@ def _encodeContainer(x, visited, start, end, reducable=set(['N', 'T', 'F', 'b', 
                     data.append(n[1::])
                 continue
 
-            r.append(prev if count == 1 else str(count) + prev)
+            r.append(_encodeCount(count) + prev)
             if hasData:
                 r.extend(data)
 
@@ -267,14 +293,14 @@ def _encodeContainer(x, visited, start, end, reducable=set(['N', 'T', 'F', 'b', 
             break
 
         else: # out of items
-            r.append(prev if count == 1 else str(count) + prev)
+            r.append(_encodeCount(count) + prev)
             if hasData:
                 r.extend(data)
 
             break
         ## reducable
 
-    r.append(end)
+    r.append(ends[typ])
 
     return ''.join(r)
 
@@ -282,25 +308,35 @@ def _encodeContainer(x, visited, start, end, reducable=set(['N', 'T', 'F', 'b', 
 class EndOfContainer(Exception):
     pass
 
-def _decodeEnd(x, n, target, endEx=EndOfContainer):
+def _decodeEnd(read, typ, n, target, endEx=EndOfContainer):
     raise endEx
 
-def _decodeContainer(x, target, typ, endEx=EndOfContainer):
-    r = []
+
+class Interface(object):
+    def __init__(self, atts):
+        self.__dict__.update(atts)
+
+def _decodeContainer(read, typ, n, target, endEx=EndOfContainer):
+    if typ == '<': # set
+        r = set()
+        nTarget = Interface(( ('append', lambda x, r=r: r.add(x)),
+                              ('extend', lambda x, r=r: r.update(x)),)
+                           )
+    else: # tuple or list
+        r = nTarget = []
 
     decode = _decode
 
     while True:
         try:
-            x = decode(x, r)
+            decode(read, nTarget)
         except endEx:
             break
 
-    if typ != list:
-        r = typ(r)
+    if typ == '(': # tuple
+        r = tuple(r)
 
     target.append(r)
-    return buffer(x, 1)
 
 
 def _encodeDict(x, visited):
@@ -325,63 +361,60 @@ def _encodeDict(x, visited):
 
     return ''.join(r)
 
-def _decodeDict(x, n, target, endEx=EndOfContainer):
+def _decodeDict(read, typ, n, target, endEx=EndOfContainer):
     decode = _decode
 
-    r = []
+    r = {}
+    setitem = r.__setitem__
 
     while True:
         rr = []
 
         try:
-            x = decode(x, rr)
+            decode(read, rr)
         except endEx:
             break
 
-        x = decode(x, rr)
+        decode(read, rr)
 
-        r.append(rr)
+        setitem(*rr)
 
-    target.append(dict(r))
-    return buffer(x, 1)
+    target.append(r)
 
 
 def _encodeBitarray(x, visited):
-    return str(len(x)) + 'B' + x.tobytes()
+    return _encodeCount(len(x)) + 'B' + x.tobytes()
 
-def _decodeBitarray(x, l, target):
+def _decodeBitarray(read, typ, n, target):
     global bitarray
     if bitarray == None:
         import bitarray
 
-    end = l >> 3 # l / 8
-    pads = l & 0x7
+    end = n >> 3 # l / 8
+    pads = n & 0x7
 
     r = bitarray.bitarray()
     if pads:
-        end += 1
-        r.frombytes(x[:end]) # frombytes needs string instead of buffer
+        r.frombytes(read(end + 1))
         del r[-(8 - pads)::]
 
     else:
-        r.frombytes(x[:end]) # see above
+        r.frombytes(read(end))
 
     target.append(r)
-
-    return buffer(x, end)
 
 
 encDefs = {
     type(None): _encodeNone,
     bool: _encodeBool,
-    int: _encodeNum,
-    long: _encodeNum,
+    int: _encodeInt,
+    long: _encodeInt,
     float: _encodeFloat,
     complex: _encodeComplex,
     str: _encodeStr,
-    tuple: lambda x, visited, enc=_encodeContainer: enc(x, visited, '(', ')'),
-    list: lambda x, visited, enc=_encodeContainer: enc(x, visited, '[', ']'),
-    set: lambda x, visited, enc=_encodeContainer: enc(sorted(x, key=type), visited, '<', '>'),
+    tuple: _encodeContainer,
+    list: _encodeContainer,
+    set: _encodeContainer,
     dict: _encodeDict,
     slice: _encodeSlice,
 }
@@ -419,20 +452,21 @@ def _encode(x, visited, encDefs=encDefs):
 
 decDefs = {
     'N': _decodeNone,
-    'T': lambda x, n, target, dec=_decodeBool: dec(x, n, target, True),
-    'F': lambda x, n, target, dec=_decodeBool: dec(x, n, target, False),
-    'b': lambda x, n, target, dec=_decodeNum: dec(x, n, target, 'b'),
-    'h': lambda x, n, target, dec=_decodeNum: dec(x, n, target, 'h'),
-    'i': lambda x, n, target, dec=_decodeNum: dec(x, n, target, 'i'),
-    'q': lambda x, n, target, dec=_decodeNum: dec(x, n, target, 'q'),
-    'Q': lambda x, n, target, dec=_decodeNum: dec(x, n, target, 'Q'),
+    'T': _decodeBool,
+    'F': _decodeBool,
+    'b': _decodeInt,
+    'h': _decodeInt,
+    'i': _decodeInt,
+    'q': _decodeInt,
+    'I': _decodeBigInt,
+    'J': _decodeVeryBigInt,
     'd': _decodeFloat,
     'C': _decodeComplex,
     'S': _decodeStr,
     ':': _decodeSlice,
-    '(': lambda x, n, target, dec=_decodeContainer: dec(x, target, tuple),
-    '[': lambda x, n, target, dec=_decodeContainer: dec(x, target, list),
-    '<': lambda x, n, target, dec=_decodeContainer: dec(x, target, set),
+    '(': _decodeContainer,
+    '[': _decodeContainer,
+    '<': _decodeContainer,
     '{': _decodeDict,
     ')': _decodeEnd,
     ']': _decodeEnd,
@@ -442,25 +476,33 @@ decDefs = {
 }
 
 
-def decode(x):
+def decode(file):
     r = []
-    _decode(x, r)
+    _decode(file.read, r)
     r, = r
     return r
 
-def _decode(x, target, pattern=re.compile('(\d*)(.)')):
-    match = pattern.match(x)
 
-    n, c = match.groups()
-    n = 1 if len(n) == 0 else int(n)
+def _decode(read, target, decDefs=decDefs):
+    c = read(1)
 
-    x = buffer(x, match.end())
+    if '0' <= c and c <= '9':
+        n = ord(c) - 48 # - ord('0')
+        c = read(1)
+    elif c == 'x':
+        n = ord(read(1))
+        c = read(1)
+    elif c == 'X':
+        n, = unpack('I', read(4))
+        c = read(1)
+    else:
+        n = 1
 
-    f = decDefs.get(c, None)
-    if f == None:
-        raise TypeError('unknown type "%s"' % c)
+    return decDefs[c](read, c, n, target)
 
-    return f(x, n, target)
+def decodes(s):
+    f = StringIO.StringIO(s)
+    return decode(f)
 
 
 
@@ -602,8 +644,6 @@ if __name__ == '__main__':
     except:
         pass
 
-    import pickle
-
 
     import sys
     if '-i' in sys.argv:
@@ -640,6 +680,9 @@ if __name__ == '__main__':
             print float(len(a)) / len(b)
 
 
+    import pickle as pickle
+    import time
+
 
     def check(x, verbose=True, bitarrays=False):
         print x, '=',
@@ -648,7 +691,7 @@ if __name__ == '__main__':
         if verbose:
             print repr(a), '(%i)' % len(a), '=',
 
-        b = decode(a)
+        b = decodes(a)
         print b
 
         assert x == b
@@ -689,7 +732,7 @@ if __name__ == '__main__':
     check( set(x) )
     check( (1, [2, set([3, tuple()]), set([])], []) )
 
-    for value in True, False, 1, 3.14, complex(1.2, 3.4), slice(0, None, ()):
+    for value in True, False, 1, 2 ** 128, 2 ** (8 * 356), 3.14, complex(1.2, 3.4), slice(0, None, ()):
         check( [value] * 7 )
     check( {1: 2, 3: [None]} )
 
@@ -807,4 +850,58 @@ if __name__ == '__main__':
             a = bitarray.bitarray(n)
             print float(len(encode(a, bitarrays=True))) / len(pickle.dumps(a, 2)) # 0.95 @ n = 8000
 
+
+
+    n = 100
+    l = 1000
+    objs = [tuple(randPrim()) for i in xrange(l)]
+
+    print
+    print 'random performance'
+
+    print 'encode:',
+    begin = time.time()
+
+    for i in xrange(n):
+        for obj in objs:
+            encode(obj)
+
+    end = time.time()
+    print end - begin
+
+
+    print 'pickle.dumps:',
+    begin = time.time()
+
+    for i in xrange(n):
+        for obj in objs:
+            pickle.dumps(obj, 2)
+
+    end = time.time()
+    print end - begin
+
+
+    encs = [encode(obj) for obj in objs]
+
+    print 'decode:',
+    begin = time.time()
+
+    for i in xrange(n):
+        for obj in encs:
+            decodes(obj)
+
+    end = time.time()
+    print end - begin
+
+    encs = [pickle.dumps(obj, 2) for obj in objs]
+
+    print 'pickle.dumps:',
+    begin = time.time()
+
+    for i in xrange(n):
+        for obj in encs:
+            pickle.loads(obj)
+
+    end = time.time()
+    print end - begin
 
