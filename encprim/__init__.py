@@ -176,6 +176,13 @@ def _encodeStr(x, visited):
 def _decodeStr(read, typ, n, target):
     target.append(read(n))
 
+def _encodeUnicode(x, visited):
+    x = x.encode('utf-8')
+    return _encodeCount(len(x)) + 'U' + x
+
+def _decodeUnicode(read, typ, n, target):
+    target.append( unicode(read(n), 'utf-8') )
+
 def _encodeSlice(x, visited):
     encode = _encode
 
@@ -412,6 +419,7 @@ encDefs = {
     float: _encodeFloat,
     complex: _encodeComplex,
     str: _encodeStr,
+    unicode: _encodeUnicode,
     tuple: _encodeContainer,
     list: _encodeContainer,
     set: _encodeContainer,
@@ -463,6 +471,7 @@ decDefs = {
     'd': _decodeFloat,
     'C': _decodeComplex,
     'S': _decodeStr,
+    'U': _decodeUnicode,
     ':': _decodeSlice,
     '(': _decodeContainer,
     '[': _decodeContainer,
@@ -724,6 +733,9 @@ if __name__ == '__main__':
     check( '' )
     check( 'a' )
     check( 'ab' )
+    check( u'' )
+    check( u'u' )
+    check( u'uc' )
     check( slice(1, 4.5, None) )
     check( tuple() )
     x = (None, True, 1, 0.1)
@@ -738,7 +750,6 @@ if __name__ == '__main__':
 
     a = []
     a.append(a)
-    assert encode( u'' ) == None
     assert encode( a ) == None
 
     if bitarray != None:
