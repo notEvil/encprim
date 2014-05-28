@@ -494,7 +494,7 @@ def decode(file):
     return r[0]
 
 
-def _decode(read, target, decDefs=decDefs):
+def _decode(read, target, decDefs=decDefs, unpack=struct.unpack):
     c = read(1)
 
     if '0' <= c and c <= '9':
@@ -917,5 +917,4 @@ if __name__ == '__main__':
 
     end = time.time()
     print end - begin
-
 
