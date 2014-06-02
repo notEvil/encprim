@@ -15,13 +15,13 @@ Overview
 Output Syntax
 -------------
 
-<i>value:</i> [count]type[data]<br />
-<i>tuple / list / set:</i> sequence of values enclosed by () / [] / <><br />
-<i>dict:</i> sequence of value pairs (key, value) enclosed by {}<br />
+<i>object:</i> [count]type[data]<br />
+<i>tuple / list / set:</i> sequence of objects enclosed by () / [] / <><br />
+<i>dict:</i> sequence of objects, keys first then values, enclosed by {}<br />
 
 Examples with data replaced by "."<br />
-(2TF)  ==  (True, True, False)<br />
-{i.d.N(2C....)}  ==  {1: 5.1, None: (3.0-2.0i, 1.0+4.0i)}<br />
+(2TF2N)  ==  (True, True, False, None, None)<br />
+{(2i..)()d.4s.}  ==  {(3, 7): 1.2, (): 'text'}<br />
 
 Getting Started
 ---------------
