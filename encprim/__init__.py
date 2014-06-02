@@ -2,6 +2,7 @@ import struct
 import cStringIO as StringIO
 
 from pickle import encode_long, decode_long
+import itertools as it
 
 
 
@@ -231,12 +232,15 @@ def _encodeCount(n, pack=struct.pack):
     return 'p' + chr(n)
 
 
-def _encodeContainer(x, visited, starts={tuple: '(', list: '[', set: '<'}, ends={tuple: ')', list: ']', set: '>'}, reducable=set(['N', 'T', 'F', 'b', 'h', 'i', 'q', 'I', 'J', 'd', 'C', ':'])):
+def _encodeContainer(x, visited, starts={tuple: '(', list: '[', set: '<', dict: '{'}, ends={tuple: ')', list: ']', set: '>', dict: '}'}, reducable=set(['N', 'T', 'F', 'b', 'h', 'i', 'q', 'I', 'J', 'd', 'C', ':'])):
     typ = type(x)
     r = [starts[typ]]
 
     if typ == set:
         x = sorted(x, key=type)
+    elif typ == dict:
+        keys = sorted(x.keys(), key=type)
+        x = it.chain(keys, [x[key] for key in keys])
 
     iX = iter(x)
 
@@ -329,10 +333,13 @@ class Interface(object):
 def _decodeContainer(read, typ, n, target, endEx=EndOfContainer):
     if typ == '<': # set
         r = set()
-        nTarget = Interface(( ('append', lambda x, r=r: r.add(x)),
-                              ('extend', lambda x, r=r: r.update(x)),)
+        nTarget = Interface((('append', r.add),
+                             ('extend', r.update))
                            )
-    else: # tuple or list
+        #nTarget = Interface(( ('append', lambda x, r=r: r.add(x)),
+                              #('extend', lambda x, r=r: r.update(x)),)
+                           #)
+    else: # tuple, list or dict
         r = nTarget = []
 
     decode = _decode
@@ -344,50 +351,9 @@ def _decodeContainer(read, typ, n, target, endEx=EndOfContainer):
             break
 
     if typ == '(': # tuple
-        r = tuple(r)
-
-    target.append(r)
-
-
-def _encodeDict(x, visited):
-    encode = _encode
-
-    r = ['{']
-
-    for key, value in x.iteritems():
-        key = encode(key, visited)
-        if key == None:
-            return None
-
-        r.append(key)
-
-        value = encode(value, visited)
-        if value == None:
-            return None
-
-        r.append(value)
-
-    r.append('}')
-
-    return ''.join(r)
-
-def _decodeDict(read, typ, n, target, endEx=EndOfContainer):
-    decode = _decode
-
-    r = {}
-    setitem = r.__setitem__
-
-    while True:
-        rr = []
-
-        try:
-            decode(read, rr)
-        except endEx:
-            break
-
-        decode(read, rr)
-
-        setitem(*rr)
+        r = tuple(nTarget)
+    elif typ == '{': # dict
+        r = dict(zip(nTarget, nTarget[len(nTarget) / 2::]))
 
     target.append(r)
 
@@ -426,7 +392,7 @@ encDefs = {
     tuple: _encodeContainer,
     list: _encodeContainer,
     set: _encodeContainer,
-    dict: _encodeDict,
+    dict: _encodeContainer,
     slice: _encodeSlice,
 }
 
@@ -479,7 +445,7 @@ decDefs = {
     '(': _decodeContainer,
     '[': _decodeContainer,
     '<': _decodeContainer,
-    '{': _decodeDict,
+    '{': _decodeContainer,
     ')': _decodeEnd,
     ']': _decodeEnd,
     '>': _decodeEnd,
@@ -744,6 +710,7 @@ if __name__ == '__main__':
     check( tuple(x) )
     check( list(x) )
     check( set(x) )
+    check( {None: True, 1: 0.1} )
     check( (1, [2, set([3, tuple()]), set([])], []) )
 
     for value in True, False, 1, 2 ** 128, 2 ** (8 * 356), 3.14, complex(1.2, 3.4), slice(0, None, ()):
