@@ -64,9 +64,9 @@ So I decided to put some effort into this module. I hope you like it or find you
 Performance
 -----------
 
-The test suite shows that encprim on average produces outputs which are 40% smaller compared to pickle. Depending on the type the rate could rise above 90% (bitarrays with len < 16) or drop below significance (big integers). By design the best result is achieved when the module encodes a single value or a flat collection of same typed values.
+The test suite shows that encprim produces outputs which are, on average, 40% smaller compared to pickle. Depending on the data type the rate could rise above 90% (bitarrays with len < 16) or drop below significance (big integers). By design the best results are achieved with single values or a flat collection of same typed values.
 
-Regarding runtime, the size optimizations have their prize. Compared to pickle, which is a valid baseline because its pure python too, encprim is faster, but not substantial. cPickle is still at least 7 times faster, so you might want to mix them depending on the situation.
+Regarding runtime, the size optimizations come at a prize. Compared to pickle, which is a valid baseline because it is pure python too, encprim is, on average, about twice as fast when encoding and only a few percent faster when decoding. However, en/decoding single values is about 5 times faster than pickle. cPickle is fastest in any case but encprim comes very close when en/decoding single values :)
 
 
 \* http://code.activestate.com/recipes/572213-pickle-the-interactive-interpreter-state/<br />
