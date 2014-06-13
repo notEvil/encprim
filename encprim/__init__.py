@@ -234,7 +234,7 @@ def _encodeCount(n, pack=struct.pack):
     return 'p' + chr(n)
 
 
-def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list: '[', set: '<', dict: '{'}, ends={tuple: ')', list: ']', set: '>', dict: '}'}, reducable=set(['N', 'T', 'F', 'b', 'h', 'i', 'q', 'I', 'J', 'd', 'C', ':'])):
+def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list: '[', set: '<', dict: '{'}, ends={tuple: ')', list: ']', set: '>', dict: '}'}, reducable='NTFbhiqIJdC:'):
     # handle recursion
     xId = id(x)
     if visited == None:
@@ -444,12 +444,32 @@ def _decodeHead(read, unpack=struct.unpack):
 
     return n, c
 
-
-
 def decodes(s):
     f = StringIO.StringIO(s)
     return decode(f)
 
+
+
+allEncs = encDefs.copy()
+allDecs = decDefs.copy()
+
+def enableType(typ):
+    encDefs[typ] = allEncs[typ]
+
+def enableTypes(typs):
+    for typ in typs:
+        enableType(typ)
+
+def disableType(typ):
+    try:
+        del encDefs[typ]
+    except KeyError: pass
+
+def disableTypes(typs):
+    for typ in typs:
+        disableType(typ)
+
+disableTypes([tuple, list, set, dict])
 
 
 
@@ -590,6 +610,8 @@ if __name__ == '__main__':
     import cPickle
     import sys
     import time
+
+    enableTypes([tuple, list, set, dict])
 
     if '-i' in sys.argv:
         if bitarray != None:
