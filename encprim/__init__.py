@@ -425,10 +425,10 @@ def decode(file, decDefs=decDefs):
     return decDefs[c](read, n, c)
 
 
-def _decodeHead(read, unpack=struct.unpack):
-    '''
-    '''
+def _decodeHead(read, decDefs=decDefs, unpack=struct.unpack):
     c = read(1)
+    if c in decDefs:
+        return 1, c
 
     if '0' <= c and c <= '9':
         n = ord(c) - 48 # - ord('0')
@@ -439,7 +439,7 @@ def _decodeHead(read, unpack=struct.unpack):
     elif c == 'P':
         n, = unpack('I', read(4))
         c = read(1)
-    else:
+    else: # not possible; c not in decDefs
         n = 1
 
     return n, c
