@@ -28,17 +28,20 @@ Getting Started
 
 Copy the encprim directory somewhere python will find it
 
-> import encprim<br />
-x = 1<br />
-a = encprim.encode( x )<br />
-print repr(a)<br />
-b = encprim.decode( a )<br />
-assert b == x<br />
-<br />
-import bitarray<br />
-print encprim.encode( bitarray.bitarray('11011') )
+    import encprim
+    x = 1
+    a = encprim.encode( x )
+    print repr(a)
+    b = encprim.decodes( a )
+    assert b == x
+    
+    import bitarray
+    print repr(encprim.encode( bitarray.bitarray('11011') ))
+    
+    encprim.enableTypes([tuple, list, set, dict])
+    print repr(encprim.encode( {(): [set([])]} ))
 
-encode returns None when the object contains non encodable types or if recursions exist.
+`encode` returns None when the object contains non encodable types or there are recursions. By default all container types (tuple, list, set, dict) are disabled due to performance reasons (see below). Use cPickle for these types, or enable them with `enableTypes`.
 
 You can start the test suite by executing the \__init__.py file directly. \__init__.out contains an example output.<br />
 Add the argument "-i" to get into interactive mode, where you can type in python structs for which the encoded value is printed, alongside with its size in bytes and the size ratio compared to pickle (lower is better).
