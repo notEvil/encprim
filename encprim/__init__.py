@@ -1,9 +1,11 @@
 import struct
-import cStringIO as StringIO
-
 from pickle import encode_long, decode_long
 import itertools as it
 
+try:
+    import cStringIO as StringIO
+except:
+    import StringIO
 
 try:
     import bitarray
@@ -40,7 +42,8 @@ type is one of
 - B = bitarray
 -- count specifies length in bits
 
-tuple/list/set = sequence of values inside () / [] / {}
+tuple/list/set = sequence of values inside () / [] / <>
+dict = sequence of keys followed by values inside {}
 '''
 
 
