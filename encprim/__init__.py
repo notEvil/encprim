@@ -240,7 +240,7 @@ def _encodeCount(n, pack=struct.pack):
 def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list: '[', set: '<', dict: '{'}, ends={tuple: ')', list: ']', set: '>', dict: '}'}, reducable='NTFbhiqIJdC:'):
     # handle recursion
     xId = id(x)
-    if visited == None:
+    if visited is None:
         visited = set()
     elif xId in visited:
         raise KeyError('recursive type')
@@ -411,7 +411,7 @@ def _decodeBitarray(read, n, typ):
 
     return r
 
-if bitarray != None:
+if bitarray is not None:
     encDefs[bitarray.bitarray] = _encodeBitarray
     decDefs['B'] = _decodeBitarray
 
@@ -514,7 +514,7 @@ def _randPrim(typ, minLen=0, maxLen=6, readable=True):
     import random
 
     f = randGens.get(typ, None)
-    if f != None:
+    if f is not None:
         return f(random)
 
     if typ == str:
@@ -617,7 +617,7 @@ if __name__ == '__main__':
     enableTypes([tuple, list, set, dict])
 
     if '-i' in sys.argv:
-        if bitarray != None:
+        if bitarray is not None:
             print 'bitarray available as ba'
             ba = bitarray.bitarray
 
@@ -641,7 +641,7 @@ if __name__ == '__main__':
                 continue
 
             a = encode(n)
-            if a == None:
+            if a is None:
                 print 'Warning: is not primitive'
                 continue
             b = cPickle.dumps(n, 2)
@@ -710,9 +710,9 @@ if __name__ == '__main__':
 
     a = []
     a.append(a)
-    assert encode( a ) == None
+    assert encode( a ) is None
 
-    if bitarray != None:
+    if bitarray is not None:
         check( bitarray.bitarray([1, 0, 0, 1]))
         check( bitarray.bitarray([1, 0, 0, 1, 0, 0, 1, 0]))
         check( bitarray.bitarray([1, 0, 0, 1, 0, 0, 1, 0, 1, 1]))
@@ -811,7 +811,7 @@ if __name__ == '__main__':
     print 'float:', compare3(float, l, n)
     print 'complex:', compare3(complex, l, n)
 
-    if bitarray != None:
+    if bitarray is not None:
         print
         print 'bitarrays'
         for i in xrange(11):
