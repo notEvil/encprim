@@ -2,10 +2,7 @@ import struct
 from pickle import encode_long, decode_long
 import itertools as it
 
-try:
-    import cStringIO as StringIO
-except:
-    import StringIO
+import io
 
 try:
     import bitarray
@@ -36,7 +33,7 @@ type is one of
 -- first 4 bytes in data specifies size in bytes
 - d = float
 - C = complex
-- S = str
+- S = bytes
 - U = unicode
 -- count specifies length in bytes
 - : = slice
@@ -53,7 +50,7 @@ decDefs = {}
 
 
 def _encodeNone(x):
-    return 'N'
+    return b'N'
 encDefs[type(None)] = _encodeNone
 
 def _decodeNone(read, n, typ):
@@ -61,68 +58,67 @@ def _decodeNone(read, n, typ):
         return None
 
     return [None] * n
-decDefs['N'] = _decodeNone
+decDefs[b'N'] = _decodeNone
 
 def _encodeBool(x):
-    return 'T' if x else 'F'
+    return b'T' if x else b'F'
 encDefs[bool] = _encodeBool
 
 def _decodeBool(read, n, typ):
     if n == 1:
-        return typ == 'T'
+        return typ == b'T'
 
-    return [typ == 'T'] * n
-decDefs['T'] = _decodeBool
-decDefs['F'] = _decodeBool
+    return [typ == b'T'] * n
+decDefs[b'T'] = _decodeBool
+decDefs[b'F'] = _decodeBool
 
 
 def _encodeInt(x, pack=struct.pack):
     pad = -1 if x < 0 else 0
 
     if (x >> 7) == pad:
-        return 'b' + pack('b', x)
+        return b'b' + pack('b', x)
 
     if (x >> 15) == pad:
-        return 'h' + pack('h', x)
+        return b'h' + pack('h', x)
 
     if (x >> 31) == pad:
-        return 'i' + pack('i', x)
+        return b'i' + pack('i', x)
 
     if (x >> 63) == pad:
-        return 'q' + pack('q', x)
+        return b'q' + pack('q', x)
 
-    bytes = encode_long(x)
-    n = len(bytes)
+    b = encode_long(x)
+    n = len(b)
     if n < 256:
-        return 'I' + chr(n) + bytes
+        return b'I' + bytes([n]) + b
 
-    return 'J' + pack('I', n) + bytes
+    return b'J' + pack('I', n) + b
 encDefs[int] = _encodeInt
-encDefs[long] = _encodeInt
 
-def _decodeInt(read, n, typ, size={'b': 1, 'h': 2, 'i': 4, 'q': 8}, unpack=struct.unpack):
+def _decodeInt(read, n, typ, size={b'b': 1, b'h': 2, b'i': 4, b'q': 8}, unpack=struct.unpack):
     if n == 1:
         return unpack(typ, read(size[typ]))[0]
 
-    return unpack(str(n) + typ, read(n * size[typ]))
-decDefs['b'] = _decodeInt
-decDefs['h'] = _decodeInt
-decDefs['i'] = _decodeInt
-decDefs['q'] = _decodeInt
+    return unpack(str(n).encode() + typ, read(n * size[typ]))
+decDefs[b'b'] = _decodeInt
+decDefs[b'h'] = _decodeInt
+decDefs[b'i'] = _decodeInt
+decDefs[b'q'] = _decodeInt
 
 def _decodeBigInt(read, n, typ):
     if n == 1:
         return decode_long(read( ord(read(1)) ))
 
-    return [ decode_long(read( ord(read(1)) )) for i in xrange(n) ]
-decDefs['I'] = _decodeBigInt
+    return [ decode_long(read( ord(read(1)) )) for i in range(n) ]
+decDefs[b'I'] = _decodeBigInt
 
 def _decodeVeryBigInt(read, n, typ, unpack=struct.unpack):
     if n == 1:
         return decode_long(read( unpack('I', read(4)) ))
 
-    return [ decode_long(read( unpack('I', read(4))[0] )) for i in xrange(n) ]
-decDefs['J'] = _decodeVeryBigInt
+    return [ decode_long(read( unpack('I', read(4))[0] )) for i in range(n) ]
+decDefs[b'J'] = _decodeVeryBigInt
 
 
 #def _toBytes(x):
@@ -158,7 +154,7 @@ decDefs['J'] = _decodeVeryBigInt
 
 
 def _encodeFloat(x, pack=struct.pack):
-    return 'd' + pack('d', x)
+    return b'd' + pack('d', x)
 encDefs[float] = _encodeFloat
 
 def _decodeFloat(read, n, typ, unpack=struct.unpack):
@@ -166,10 +162,10 @@ def _decodeFloat(read, n, typ, unpack=struct.unpack):
         return unpack('d', read(8))[0]
 
     return unpack(str(n) + 'd', read(n * 8))
-decDefs['d'] = _decodeFloat
+decDefs[b'd'] = _decodeFloat
 
 def _encodeComplex(x, pack=struct.pack):
-    return 'C' + pack('2d', x.real, x.imag)
+    return b'C' + pack('2d', x.real, x.imag)
 encDefs[complex] = _encodeComplex
 
 def _decodeComplex(read, n, typ, unpack=struct.unpack):
@@ -180,31 +176,31 @@ def _decodeComplex(read, n, typ, unpack=struct.unpack):
     count = 2 * n # real, imag
     values = unpack(str(count) + 'd', read(8 * count))
     return [complex(*t) for t in zip(values[::2], values[1::2])]
-decDefs['C'] = _decodeComplex
+decDefs[b'C'] = _decodeComplex
+
+def _encodeBytes(x):
+    return _encodeCount(len(x)) + b'S' + x
+encDefs[bytes] = _encodeBytes
+
+def _decodeBytes(read, n, typ):
+    return read(n)
+decDefs[b'S'] = _decodeBytes
 
 def _encodeStr(x):
-    return _encodeCount(len(x)) + 'S' + x
+    x = x.encode()
+    return _encodeCount(len(x)) + b'U' + x
 encDefs[str] = _encodeStr
 
-def _decodeStr(read, n, typ):
-    return read(n)
-decDefs['S'] = _decodeStr
-
-def _encodeUnicode(x):
-    x = x.encode('utf-8')
-    return _encodeCount(len(x)) + 'U' + x
-encDefs[unicode] = _encodeUnicode
-
 def _decodeUnicode(read, n, typ):
-    return unicode(read(n), 'utf-8')
-decDefs['U'] = _decodeUnicode
+    return read(n).decode()
+decDefs[b'U'] = _decodeUnicode
 
 def _encodeSlice(x, encDefs=encDefs):
     start = encDefs[type(x.start)](x.start)
     stop = encDefs[type(x.stop)](x.stop)
     step = encDefs[type(x.step)](x.step)
 
-    return ':' + start + stop + step
+    return b':' + start + stop + step
 encDefs[slice] = _encodeSlice
 
 def _decodeSlice(read, n, typ, decDefs=decDefs):
@@ -215,30 +211,30 @@ def _decodeSlice(read, n, typ, decDefs=decDefs):
         return slice(start, stop, step)
 
     r = []
-    for i in xrange(n):
+    for i in range(n):
         c = read(1); start = decDefs[c](read, 1, c)
         c = read(1); stop = decDefs[c](read, 1, c)
         c = read(1); step = decDefs[c](read, 1, c)
         r.append( slice(start, stop, step) )
     return r
-decDefs[':'] = _decodeSlice
+decDefs[b':'] = _decodeSlice
 
 
 
 def _encodeCount(n, pack=struct.pack):
     if n == 1:
-        return ''
+        return b''
 
     if n < 10:
-        return str(n)
+        return str(n).encode()
 
     if n >> 8: # doesn't fit into 1 byte
-        return 'P' + pack('I', n)
+        return b'P' + pack('I', n)
 
-    return 'p' + chr(n)
+    return b'p' + bytes([n])
 
 
-def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list: '[', set: '<', dict: '{'}, ends={tuple: ')', list: ']', set: '>', dict: '}'}, reducable='NTFbhiqIJdC:'):
+def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: b'(', list: b'[', set: b'<', dict: b'{'}, ends={tuple: b')', list: b']', set: b'>', dict: b'}'}, reducable=b'NTFbhiqIJdC:'):
     # handle recursion
     xId = id(x)
     if visited is None:
@@ -252,15 +248,15 @@ def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list:
     xTyp = type(x)
     r = [starts[xTyp]]
 
-    if xTyp == set:
-        x = sorted(x, key=type)
-    elif xTyp == dict:
-        keys = x.keys()
-        keys.sort(key=type)
+    if xTyp is set:
+        x = sorted(x, key=lambda x: hash(type(x)))
+    elif xTyp is dict:
+        keys = list(x.keys())
+        keys.sort(key=lambda x: hash(type(x)))
         x = it.chain(keys, [x[key] for key in keys])
 
     iX = iter(x)
-    active = ''
+    active = b''
     hasData = False
     count = 1
 
@@ -272,7 +268,7 @@ def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list:
         else:
             n = encDefs[typ](item) # may raise key error
 
-        first = n[0]
+        first = n[0:1:]
         if first == active:
             count += 1
             if hasData:
@@ -306,7 +302,7 @@ def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list:
 
             n = encDefs[typ](item)
 
-            first = n[0]
+            first = n[0:1:]
             if first not in reducable:
                 r.append(n)
                 continue
@@ -333,7 +329,7 @@ def _encodeContainer(x, visited=None, encDefs=encDefs, starts={tuple: '(', list:
     r.append(ends[xTyp])
 
     visited.remove(xId)
-    return ''.join(r)
+    return b''.join(r)
 encDefs[tuple] = _encodeContainer
 encDefs[list] = _encodeContainer
 encDefs[set] = _encodeContainer
@@ -349,7 +345,7 @@ class Interface(object):
         self.__dict__.update(atts)
 
 def _decodeContainer(read, n, typ, endEx=EndOfContainer):
-    if typ == '<': # set
+    if typ == b'<': # set
         r = set()
         append = r.add
         extend = r.update
@@ -375,28 +371,28 @@ def _decodeContainer(read, n, typ, endEx=EndOfContainer):
 
         append(item)
 
-    if typ == '(': # tuple
+    if typ == b'(': # tuple
         r = tuple(r)
-    elif typ == '{': # dict
-        r = dict(zip(r, r[len(r) / 2::]))
+    elif typ == b'{': # dict
+        r = dict(list(zip(r, r[len(r) // 2::])))
 
     return r
-decDefs['('] = _decodeContainer
-decDefs['['] = _decodeContainer
-decDefs['<'] = _decodeContainer
-decDefs['{'] = _decodeContainer
+decDefs[b'('] = _decodeContainer
+decDefs[b'['] = _decodeContainer
+decDefs[b'<'] = _decodeContainer
+decDefs[b'{'] = _decodeContainer
 
 def _decodeEnd(read, n, typ, endEx=EndOfContainer):
     raise endEx
-decDefs[')'] = _decodeEnd
-decDefs[']'] = _decodeEnd
-decDefs['>'] = _decodeEnd
-decDefs['}'] = _decodeEnd
+decDefs[b')'] = _decodeEnd
+decDefs[b']'] = _decodeEnd
+decDefs[b'>'] = _decodeEnd
+decDefs[b'}'] = _decodeEnd
 
 
 
 def _encodeBitarray(x):
-    return _encodeCount(len(x)) + 'B' + x.tobytes()
+    return _encodeCount(len(x)) + b'B' + x.tobytes()
 
 def _decodeBitarray(read, n, typ):
     end = n >> 3 # l / 8
@@ -414,7 +410,7 @@ def _decodeBitarray(read, n, typ):
 
 if bitarray is not None:
     encDefs[bitarray.bitarray] = _encodeBitarray
-    decDefs['B'] = _decodeBitarray
+    decDefs[b'B'] = _decodeBitarray
 
 
 def encode(x, encDefs=encDefs):
@@ -434,13 +430,13 @@ def _decodeHead(read, decDefs=decDefs, unpack=struct.unpack):
     if c in decDefs:
         return 1, c
 
-    if '0' <= c and c <= '9':
+    if b'0' <= c and c <= b'9':
         n = ord(c) - 48 # - ord('0')
         c = read(1)
-    elif c == 'p':
+    elif c == b'p':
         n = ord(read(1))
         c = read(1)
-    elif c == 'P':
+    elif c == b'P':
         n, = unpack('I', read(4))
         c = read(1)
     else: # not possible; c not in decDefs
@@ -449,7 +445,9 @@ def _decodeHead(read, decDefs=decDefs, unpack=struct.unpack):
     return n, c
 
 def decodes(s):
-    f = StringIO.StringIO(s)
+    if not isinstance(s, bytes):
+        s = s.encode()
+    f = io.BytesIO(s)
     return decode(f)
 
 
@@ -502,7 +500,7 @@ def randPrim(minLen=0, maxLen=6, readable=True):
 
     n = random.randint(minLen, maxLen)
     choice = random.choice
-    typs = (choice([None, bool, 1, 2, 3, 4, 5, 6, 7, 8, 16, float, complex, str, tuple, list, dict]) for i in xrange(n))
+    typs = (choice([None, bool, 1, 2, 3, 4, 5, 6, 7, 8, 16, float, complex, str, tuple, list, dict]) for i in range(n))
 
     randPrim = _randPrim
     nMaxLen = max(minLen, maxLen - 1)
@@ -588,7 +586,7 @@ def _randPrim(typ, minLen=0, maxLen=6, readable=True):
             # get value
             while True:
                 try:
-                    value = _randPrim(minLen=nMinLen, maxLen=nMaxLen, readable=readable).next()
+                    value = next(_randPrim(minLen=nMinLen, maxLen=nMaxLen, readable=readable))
                 except StopIteration:
                     continue
 
@@ -611,7 +609,6 @@ def _randPrim(typ, minLen=0, maxLen=6, readable=True):
 
 if __name__ == '__main__':
     import pickle
-    import cPickle
     import sys
     import time
 
@@ -619,49 +616,49 @@ if __name__ == '__main__':
 
     if '-i' in sys.argv:
         if bitarray is not None:
-            print 'bitarray available as ba'
+            print('bitarray available as ba')
             ba = bitarray.bitarray
 
-        print 'Press q to exit'
+        print('Press q to exit')
 
         while True:
-            n = raw_input('= ')
+            n = input('= ')
 
             if n == 'q':
                 sys.exit()
             elif n == '':
                 continue
             elif n == 'h' or n == 'help' or n == '?':
-                print 'Press q to exit'
+                print('Press q to exit')
 
             try:
                 n = eval(n)
-            except Exception, e:
-                print 'Error:'
-                print e
+            except Exception as e:
+                print('Error:')
+                print(e)
                 continue
 
             a = encode(n)
             if a is None:
-                print 'Warning: is not primitive'
+                print('Warning: is not primitive')
                 continue
-            b = cPickle.dumps(n, 2)
+            b = pickle.dumps(n)
 
-            print repr(a), '(%s)' % len(a)
-            print float(len(a)) / len(b)
+            print(repr(a), '(%s)' % len(a))
+            print(float(len(a)) / len(b))
 
 
 
 
     def check(x, verbose=True):
-        print x, '=',
+        print(x, '=', end=' ')
         a = encode(x)
 
         if verbose:
-            print repr(a), '(%i)' % len(a), '=',
+            print(repr(a), '(%i)' % len(a), '=', end=' ')
 
         b = decodes(a)
-        print b
+        print(b)
 
         assert x == b
 
@@ -690,12 +687,12 @@ if __name__ == '__main__':
     check( -0x80000000000000000000000000000000 )
     check(3.141521)
     check( complex(1.2, 3.4) )
+    check( b'' )
+    check( b'a' )
+    check( b'ab' )
     check( '' )
-    check( 'a' )
-    check( 'ab' )
-    check( u'' )
-    check( u'u' )
-    check( u'uc' )
+    check( 'u' )
+    check( 'uc' )
     check( slice(1, 4.5, None) )
     check( tuple() )
     x = (None, True, 1, 0.1)
@@ -725,11 +722,11 @@ if __name__ == '__main__':
     def compare(n, l):
         pSum = 0.
 
-        for i in xrange(n):
+        for i in range(n):
             obj = tuple(randPrim(0, l))
 
             a = len(encode(obj))
-            b = len(cPickle.dumps(obj, 2))
+            b = len(pickle.dumps(obj))
 
             p = float(a) / b
 
@@ -738,56 +735,56 @@ if __name__ == '__main__':
         return pSum / n
 
     n = 1000
-    print
-    print 'random prims'
-    print 's = 2:', compare(n, 2)
-    print 's = 4:', compare(n, 4)
-    print 's = 6:', compare(n, 6)
-    print 's = 8:', compare(n, 8)
-    print 's = 10:', compare(n, 10)
-    print 's = 12:', compare(n, 12)
+    print()
+    print('random prims')
+    print('s = 2:', compare(n, 2))
+    print('s = 4:', compare(n, 4))
+    print('s = 6:', compare(n, 6))
+    print('s = 8:', compare(n, 8))
+    print('s = 10:', compare(n, 10))
+    print('s = 12:', compare(n, 12))
 
 
     def compare2(typ, n):
         pSum = 0.
         f = randGens[typ]
 
-        for i in xrange(n):
+        for i in range(n):
             obj = f(random)
 
             a = len(encode(obj))
-            b = len(cPickle.dumps(obj, 2))
+            b = len(pickle.dumps(obj))
 
             pSum += float(a) / b
 
         return pSum / n
 
 
-    print
-    print 'random very prims'
-    print 'None:', compare2(None, 1000)
-    print 'bool:', compare2(bool, 1000)
-    print 1, ':', compare2(1, 1000)
-    print 2, ':', compare2(2, 1000)
-    print 3, ':', compare2(3, 1000)
-    print 4, ':', compare2(4, 1000)
-    print 5, ':', compare2(5, 1000)
-    print 6, ':', compare2(6, 1000)
-    print 7, ':', compare2(7, 1000)
-    print 8, ':', compare2(8, 1000)
-    print 16, ':', compare2(16, 1000)
-    print 'float:', compare2(float, 1000)
-    print 'complex:', compare2(complex, 1000)
+    print()
+    print('random very prims')
+    print('None:', compare2(None, 1000))
+    print('bool:', compare2(bool, 1000))
+    print(1, ':', compare2(1, 1000))
+    print(2, ':', compare2(2, 1000))
+    print(3, ':', compare2(3, 1000))
+    print(4, ':', compare2(4, 1000))
+    print(5, ':', compare2(5, 1000))
+    print(6, ':', compare2(6, 1000))
+    print(7, ':', compare2(7, 1000))
+    print(8, ':', compare2(8, 1000))
+    print(16, ':', compare2(16, 1000))
+    print('float:', compare2(float, 1000))
+    print('complex:', compare2(complex, 1000))
 
     def compare3(typ, l, n):
         f = randGens[typ]
 
         pSum = 0.
-        for i in xrange(n):
-            obj = tuple(f(random) for i in xrange(l))
+        for i in range(n):
+            obj = tuple(f(random) for i in range(l))
 
             a = len(encode(obj))
-            b = len(cPickle.dumps(obj, 2))
+            b = len(pickle.dumps(obj))
 
             pSum += float(a) / b
 
@@ -796,65 +793,62 @@ if __name__ == '__main__':
     n = 1000
     l = 32
 
-    print
-    print 'random flat, typed prims'
-    print 'None:', compare3(None, l, n)
-    print 'bool:', compare3(bool, l, n)
-    print 1, ':', compare3(1, l, n)
-    print 2, ':', compare3(2, l, n)
-    print 3, ':', compare3(3, l, n)
-    print 4, ':', compare3(4, l, n)
-    print 5, ':', compare3(5, l, n)
-    print 6, ':', compare3(6, l, n)
-    print 7, ':', compare3(7, l, n)
-    print 8, ':', compare3(8, l, n)
-    print 16, ':', compare3(16, l, n)
-    print 'float:', compare3(float, l, n)
-    print 'complex:', compare3(complex, l, n)
+    print()
+    print('random flat, typed prims')
+    print('None:', compare3(None, l, n))
+    print('bool:', compare3(bool, l, n))
+    print(1, ':', compare3(1, l, n))
+    print(2, ':', compare3(2, l, n))
+    print(3, ':', compare3(3, l, n))
+    print(4, ':', compare3(4, l, n))
+    print(5, ':', compare3(5, l, n))
+    print(6, ':', compare3(6, l, n))
+    print(7, ':', compare3(7, l, n))
+    print(8, ':', compare3(8, l, n))
+    print(16, ':', compare3(16, l, n))
+    print('float:', compare3(float, l, n))
+    print('complex:', compare3(complex, l, n))
 
     if bitarray is not None:
-        print
-        print 'bitarrays'
-        for i in xrange(11):
+        print()
+        print('bitarrays')
+        for i in range(11):
             n = 2 ** i
-            print 'n =', n, ':',
+            print('n =', n, ':', end=' ')
 
             a = bitarray.bitarray(n)
-            print float(len(encode(a))) / len(cPickle.dumps(a, 2)) # 0.95 @ n = 8000
+            print(float(len(encode(a))) / len(pickle.dumps(a))) # 0.95 @ n = 8000
 
 
 
     n = 100
     l = 1000
-    objs = [tuple(randPrim()) for i in xrange(l)]
+    objs = [tuple(randPrim()) for i in range(l)]
 
     def timeit(f, x, n):
         begin = time.time()
 
-        for i in xrange(n):
+        for i in range(n):
             for y in x:
                 f(y)
 
         end = time.time()
         return end - begin
 
-    print
-    print 'random performance'
+    print()
+    print('random performance')
 
-    t_cDumps = lambda x, f=cPickle.dumps: f(x, 2)
     t_encode = lambda x, f=encode: f(x)
-    t_dumps = lambda x, f=pickle.dumps: f(x, 2)
+    t_dumps = pickle.dumps
 
-    print 'cPickle.dumps:', timeit(t_cDumps, objs, n)
-    print 'encode:', timeit(t_encode, objs, n)
-    print 'pickle.dumps:', timeit(t_dumps, objs, n)
+    print('pickle.dumps:', timeit(t_dumps, objs, n))
+    print('encode:', timeit(t_encode, objs, n))
 
-    dumps = [cPickle.dumps(obj, 2) for obj in objs]
+    dumps = [pickle.dumps(obj, 2) for obj in objs]
     encs = [encode(obj) for obj in objs]
 
-    print 'cPickle.loads:', timeit(cPickle.loads, dumps, n)
-    print 'decode:', timeit(decodes, encs, n)
-    print 'pickle.loads:', timeit(pickle.loads, dumps, n)
+    print('pickle.loads:', timeit(pickle.loads, dumps, n))
+    print('decode:', timeit(decodes, encs, n))
 
 
     n = 10 ** 2
@@ -862,63 +856,63 @@ if __name__ == '__main__':
 
 
 
-    print
-    print 'single object performance'
-    print 'encode'
+    print()
+    print('single object performance')
+    print('encode')
     x = [None] * c
-    print 'None', timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[bool]; x = [f(random) for i in xrange(c)]
-    print 'bool', timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[1]; x = [f(random) for i in xrange(c)]
-    print 1, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[2]; x = [f(random) for i in xrange(c)]
-    print 2, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[3]; x = [f(random) for i in xrange(c)]
-    print 3, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[4]; x = [f(random) for i in xrange(c)]
-    print 4, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[5]; x = [f(random) for i in xrange(c)]
-    print 5, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[6]; x = [f(random) for i in xrange(c)]
-    print 6, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[7]; x = [f(random) for i in xrange(c)]
-    print 7, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[8]; x = [f(random) for i in xrange(c)]
-    print 8, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[16]; x = [f(random) for i in xrange(c)]
-    print 16, timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[float]; x = [f(random) for i in xrange(c)]
-    print 'float', timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
-    f = randGens[complex]; x = [f(random) for i in xrange(c)]
-    print 'complex', timeit(t_cDumps, x, n), timeit(t_encode, x, n), timeit(t_dumps, x, n)
+    print('None', timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[bool]; x = [f(random) for i in range(c)]
+    print('bool', timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[1]; x = [f(random) for i in range(c)]
+    print(1, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[2]; x = [f(random) for i in range(c)]
+    print(2, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[3]; x = [f(random) for i in range(c)]
+    print(3, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[4]; x = [f(random) for i in range(c)]
+    print(4, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[5]; x = [f(random) for i in range(c)]
+    print(5, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[6]; x = [f(random) for i in range(c)]
+    print(6, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[7]; x = [f(random) for i in range(c)]
+    print(7, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[8]; x = [f(random) for i in range(c)]
+    print(8, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[16]; x = [f(random) for i in range(c)]
+    print(16, timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[float]; x = [f(random) for i in range(c)]
+    print('float', timeit(t_dumps, x, n), timeit(t_encode, x, n))
+    f = randGens[complex]; x = [f(random) for i in range(c)]
+    print('complex', timeit(t_dumps, x, n), timeit(t_encode, x, n))
 
-    print 'decode'
-    x = [None] * c; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 'None', timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[bool]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 'bool', timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[1]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 1, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[2]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 2, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[3]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 3, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[4]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 4, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[5]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 5, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[6]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 6, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[7]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 7, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[8]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 8, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[16]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 16, timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[float]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 'float', timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
-    f = randGens[complex]; x = [f(random) for i in xrange(c)]; dumps = map(t_cDumps, x); encs = map(encode, x)
-    print 'complex', timeit(cPickle.loads, dumps, n), timeit(decodes, encs, n), timeit(pickle.loads, dumps, n)
+    print('decode')
+    x = [None] * c; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print('None', timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[bool]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print('bool', timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[1]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(1, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[2]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(2, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[3]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(3, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[4]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(4, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[5]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(5, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[6]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(6, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[7]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(7, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[8]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(8, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[16]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print(16, timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[float]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print('float', timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
+    f = randGens[complex]; x = [f(random) for i in range(c)]; dumps = list(map(t_dumps, x)); encs = list(map(encode, x))
+    print('complex', timeit(pickle.loads, dumps, n), timeit(decodes, encs, n))
 
 
 
